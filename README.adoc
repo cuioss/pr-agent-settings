@@ -279,9 +279,14 @@ plus the standard `GITHUB_*` / `RUNNER_*` set. Exporting `GOOGLE_APPLICATION_CRE
 `$GITHUB_ENV`, as the auth action does, does **not** forward it into the container; it has to
 be restated on the reviewer step.
 
-The AI Studio path remains available as an escape hatch: set a `gemini/…` model id here and
-supply `GEMINI_API_KEY`. Use a *billing-enabled* key if you do — the free tier is rate-limited
-and its traffic may be used for training.
+*There is no AI Studio fallback.* The `GEMINI_API_KEY` secret is deleted and the workflow no
+longer passes it, so setting a `gemini/…` model id here would fail at the model call. Carrying
+the passthrough "just in case" was worse than removing it: it advertised a route that could not
+work, which is the same class of defect as the dead `ignore_pr_*` settings above. Restoring it
+means re-creating the secret *and* re-adding the env line — deliberately, both at once.
+
+If AI Studio is ever revived, note that its free tier is rate-limited and its traffic may be
+used for training; use a billing-enabled key.
 
 [#charter]
 == Charter: why security-weighted

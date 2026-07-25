@@ -17,9 +17,9 @@
 # The GCP project and location are NOT here — they are deployment identity, carried as org
 # variables by the reusable workflow, so the project id stays out of this public repo.
 #
-# Switching back to AI Studio is a one-line change to a `gemini/…` id (the workflow still
-# passes the AI Studio key when one is set) — but note `gemini/gemini-3.5-pro` 404s on the
-# org's AI Studio key while the Vertex entitlement differs. A wrong model id used to cost one
+# There is NO AI Studio fallback: the GEMINI_API_KEY secret is deleted and the workflow no
+# longer passes it, so a `gemini/…` id here would fail at the model call. Reviving that route
+# means re-creating the secret AND re-adding the env line. A wrong model id used to cost one
 # silent, review-less run per PR; the published-review gate now makes it fail loudly instead.
 model = "vertex_ai/gemini-3.5-pro"
 fallback_models = ["vertex_ai/gemini-3.5-flash"]
