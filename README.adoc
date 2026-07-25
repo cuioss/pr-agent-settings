@@ -1,0 +1,359 @@
+= pr-agent-settings
+:toc: left
+:toclevels: 2
+:icons: font
+
+Central https://github.com/The-PR-Agent/pr-agent[PR-Agent] configuration for the *cuioss*
+organization.
+
+== Purpose
+
+PR-Agent is the *third* automated reviewer in this organization, running on *Google Gemini*.
+It stands beside — and does not replace — the existing two:
+
+[cols="1,2,2"]
+|===
+|Reviewer |Central config |Role
+
+|CodeRabbit
+|https://github.com/cuioss/coderabbit[`cuioss/coderabbit`] (`.coderabbit.yaml`)
+|General review, nitpicks, committable suggestions
+
+|Sourcery
+|Dashboard only (https://app.sourcery.ai[app.sourcery.ai])
+|Refactoring and code-quality review
+
+|PR-Agent
+|*This repository* (`.pr_agent.toml`)
+|Security-weighted review — see <<charter>>
+|===
+
+Adoption is *opt-in per repository*: a repo joins by adding a small caller workflow
+(<<adding-a-repository>>). Repositories without that workflow are untouched.
+
+== What this repository is
+
+PR-Agent reads organization-level settings from a repository named *exactly*
+`pr-agent-settings`, from the file `.pr_agent.toml` at the root of its *default branch*. The
+name and location are hard-coded in PR-Agent's discovery — this repository exists solely to
+be found by that lookup, exactly as `cuioss/coderabbit` exists to be found by CodeRabbit's.
+
+There is no code here. Two files matter:
+
+* `.pr_agent.toml` — the active configuration, with the rationale for each setting inline.
+* `README.adoc` — this document: how the setup works, and the non-obvious mechanics that are
+easy to get wrong.
+
+== Which PR-Agent
+
+Three different products share the name, and only one of them can run on our own Gemini key.
+
+[cols="1,1,1,2"]
+|===
+|Product |Bring-your-own model |Infrastructure |Verdict
+
+|*Open-source PR-Agent, GitHub Action*
+|yes
+|none
+|*What we run.* Upstream is https://github.com/The-PR-Agent/pr-agent[`The-PR-Agent/pr-agent`] — the
+community continuation of the project after the original vendor moved on. Its own description
+states it is _not_ the Qodo free tier.
+
+|Open-source PR-Agent, self-hosted GitHub App
+|yes
+|always-on server + webhook endpoint
+|Rejected: no benefit over the Action for our usage, and it needs hosting.
+
+|Qodo Merge (hosted SaaS)
+|no on the free/basic tier
+|none
+|Rejected: the provider is not ours to choose, which fails the requirement outright.
+|===
+
+The consequence of running the *Action* rather than the *App* is larger than it looks — see
+<<dead-config>>.
+
+== Configuration precedence
+
+Lowest to highest priority:
+
+. Built-in defaults.
+. `extra_config_url` (an external configuration URL; unused here).
+. *This repository* — the organization-level global file.
+. A repository-local `.pr_agent.toml`.
+. A repository wiki `.pr_agent.toml` page.
+. Environment variables.
+
+Two properties are better than the CodeRabbit equivalent and worth relying on:
+
+* *Merge, not override.* The global file is merged _beneath_ the repo-local one. A repository
+that overrides a single key keeps everything else from here. A repository-level
+`.coderabbit.yaml`, by contrast, fully replaces the central file unless it opts into
+inheritance.
+* *No cache lag.* A CI run is a short-lived process and fetches the global settings once per
+invocation, so a change here is live on the next pull request. (A long-running webhook
+deployment caches them for up to 15 minutes — not our case.)
+
+A repository can opt out of this file entirely with `use_global_settings_file = false` in its
+own `.pr_agent.toml`.
+
+[WARNING]
+====
+*Environment variables outrank this file.* Every upstream example sets `config.model` in the
+workflow `env:` block — doing that in a caller workflow would silently decentralize the most
+important setting. Model and tool tuning belong here; the caller workflow passes only the
+credentials and the three tool toggles (see <<tool-toggles>>).
+====
+
+== Learnings
+
+The five things below cost real investigation to establish. They are recorded here so nobody
+has to re-derive them.
+
+[#cross-repo-token]
+=== The reviewer token must be able to read two repositories
+
+PR-Agent skips the global configuration — *silently, with no error* — if the token it runs
+under cannot read both the pull request's repository and `pr-agent-settings`.
+
+The reviewer runs under a token minted from the `cuioss-review-bot` GitHub App, and
+`actions/create-github-app-token` scopes its token to the *current repository only* by
+default. The reusable workflow therefore requests both explicitly:
+
+[source,yaml]
+----
+with:
+  app-id: ${{ secrets.REVIEW_APP_ID }}
+  private-key: ${{ secrets.REVIEW_APP_PRIVATE_KEY }}
+  repositories: ${{ github.event.repository.name }},pr-agent-settings
+  owner: cuioss
+----
+
+The App must also be *installed* on `pr-agent-settings`; an org-wide installation covers
+this. Because the failure mode is silent, verify positively — change a visible key here and
+observe the review change — rather than by absence of an error in the log.
+
+[#dead-config]
+=== `ignore_pr_*` is dead config in GitHub Action mode
+
+*The most important thing in this document.*
+
+PR-Agent's documented skip options — `ignore_pr_labels`, `ignore_pr_authors`,
+`ignore_pr_title`, `ignore_pr_source_branches`, `ignore_pr_target_branches` — are read by a
+single function, `should_process_pr_logic()`. That function exists in the *webhook servers*
+(`servers/github_app.py`, `servers/gitlab_webhook.py`, `servers/gitea_app.py`,
+`servers/bitbucket_*`). It does *not* exist in `servers/github_action_runner.py`, which goes
+straight from applying repository settings to running the tools.
+
+So in GitHub Action mode those five keys do nothing. Putting the org skip rules in this file
+would look correct, pass review, and review every pull request anyway — a false green.
+
+*Where the skip rules actually live:* job-level `if:` guards in
+`cuioss/cuioss-organization/.github/workflows/reusable-pr-agent-review.yml`. Because that is
+a reusable workflow, the rules remain centralized — one file to edit, same as this one.
+
+[source,yaml]
+----
+jobs:
+  review:
+    if: >-
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'cuioss-release-bot[bot]' &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-bot-review')
+----
+
+This is also strictly cheaper than the webhook mechanism it replaces: a guarded-out pull
+request consumes *no runner minutes and no tokens at all*, whereas a webhook-mode `ignore_*`
+still starts the process before deciding to stop.
+
+[#floating-tag]
+=== Pinning the action does not pin the code
+
+PR-Agent's `action.yaml` is a Docker action, and its Dockerfile is one line:
+
+[source,dockerfile]
+----
+FROM pragent/pr-agent:github_action
+----
+
+That is a *floating tag*, in the *former vendor's* Docker Hub namespace. Pinning
+`uses: The-PR-Agent/pr-agent@<sha>` pins the wrapper while the executed code remains whatever
+that tag points at today — which defeats the org's pinned-dependency posture and its
+Scorecards score.
+
+The reusable workflow therefore pins the *image digest* directly:
+
+[source,yaml]
+----
+uses: docker://pragent/pr-agent@sha256:<digest>
+----
+
+Trade-off: the `docker://` form does not accept the action's `artifact_path` /
+`artifact_instructions` inputs. Those are only sugar for the `ARTIFACT_PATH` /
+`ARTIFACT_INSTRUCTIONS` environment variables and can be set directly if ever needed.
+
+Digest bumps are a deliberate, reviewable step. Given that this is a community continuation of
+an abandoned upstream, distributed through the previous vendor's registry namespace, digest
+pinning is what makes the dependency acceptable rather than merely convenient.
+
+[#bot-identity]
+=== The reviewer needs its own identity
+
+Run with the default `GITHUB_TOKEN`, the reviewer posts as `github-actions[bot]` — the same
+author as every other workflow comment in the repository. Downstream automation
+(plan-marshall's `automatic-review` pipeline) attributes findings by author login, so that
+would mis-attribute unrelated workflow comments as review findings and make per-reviewer
+review metrics meaningless.
+
+Hence the dedicated `cuioss-review-bot` GitHub App, which gives the reviewer a unique author
+login and keeps the downstream integration a pure data edit with no per-bot special-casing.
+
+`cuioss-release-bot` was deliberately *not* reused: it is itself on the reviewer skip list, so
+sharing the identity would entangle "who authored this pull request" with "who reviewed it".
+
+Required App permissions: Pull requests read/write, Issues read/write, Contents read-only,
+Metadata read-only. No ruleset bypass — the reviewer never pushes.
+
+[#stale-docs]
+=== The upstream model documentation is stale
+
+The upstream `changing_a_model.md` page lists only `gemini/gemini-1.5-flash` for Google AI
+Studio. The authoritative list is the `MAX_TOKENS` registry in `pr_agent/algo/__init__.py`,
+which registers the current line — `gemini/gemini-2.5-flash`, `gemini/gemini-2.5-pro`, the
+`gemini-3-*`, `gemini-3.1-*`, `gemini-3.5-*` and `gemini-3.6-flash` families, plus the
+`vertex_ai/` mirrors — all at 1M context. No `custom_model_max_tokens` override is needed for
+any of them.
+
+Related: `reasoning_effort` is mapped onto Gemini's thinking budget by LiteLLM, and PR-Agent
+special-cases the 2.5 models because the configured effort would otherwise be dropped
+silently. Relevant if per-pull-request cost ever needs tuning.
+
+Credentials go in as `GOOGLE_AI_STUDIO.GEMINI_API_KEY`. Use a *billing-enabled* AI Studio key:
+the free tier is rate-limited, and free-tier traffic may be used for training. Vertex AI with
+Workload Identity Federation (`vertex_ai/…` model ids, no long-lived key) is the keyless
+alternative if that ever becomes a requirement.
+
+[#charter]
+== Charter: why security-weighted
+
+The organization's review docs record that the retired consumer tier of Gemini Code Assist was
+in practice the sharpest *security* reviewer of the three bots, and that its sunset left that
+gap to be covered by reading CodeRabbit's security findings more carefully.
+
+A third general-purpose reviewer would mostly restate what CodeRabbit and Sourcery already
+say. So this one is pointed at the gap: `require_security_review = true` plus a
+security-weighted `extra_instructions` block, and the low-value output (effort estimates,
+review labels, ticket analysis, help text) switched off. `repo_context_files` additionally
+feeds it this org's `CLAUDE.md` / `AGENTS.md`, so it reviews against documented project rules
+rather than generic expectations — something neither other reviewer can do.
+
+== Skip rules
+
+Three rules, matching `cuioss/coderabbit` exactly in effect, but *not* in mechanism:
+
+[cols="2,2,3"]
+|===
+|Rule |Enforced by |Notes
+
+|Skip `dependabot[bot]` pull requests
+|Reusable-workflow `if:` guard
+|Dependency bumps are gated by CI and auto-merge.
+
+|Skip `cuioss-release-bot[bot]` pull requests
+|Reusable-workflow `if:` guard
+|Consumer-propagation and workflow-SHA bumps.
+
+|Skip any pull request labelled `skip-bot-review`
+|Reusable-workflow `if:` guard
+|The shared org-wide opt-out label. Create it per repository where needed.
+
+|Skip fork pull requests
+|Reusable-workflow `if:` guard
+|Secrets are unavailable to them, so the token step could only fail. Reviewing forks needs
+`pull_request_target` and a separate security review of that decision.
+|===
+
+The guard is evaluated when a review would be triggered — on `opened`, `reopened` and
+`ready_for_review`. Label the pull request at creation time (`gh pr create --label
+skip-bot-review`) or before marking a draft ready; labelling it after a review has been posted
+does not retract that review, exactly as with CodeRabbit.
+
+An explicit `/review` comment from a human overrides the skip label: someone is asking on
+purpose. Bot senders are excluded, so the reviewer cannot retrigger itself off its own comment.
+
+[IMPORTANT]
+====
+Do not "move these into the central config for tidiness". That is precisely the
+<<dead-config,dead-config trap>>: the settings exist, they parse, and they are ignored.
+====
+
+[#tool-toggles]
+== Tools
+
+PR-Agent has three automatic tools. Only one is enabled:
+
+[cols="1,1,3"]
+|===
+|Tool |Enabled |Reason
+
+|`/review`
+|yes
+|The reason this reviewer exists.
+
+|`/describe`
+|no
+|It rewrites the pull request description, which collides with generated pull request bodies
+and the machine-readable blocks our automation reads out of them.
+
+|`/improve`
+|no
+|Committable suggestions are already CodeRabbit's job. Enabling it duplicates findings and
+roughly doubles token cost per pull request. Revisit from review-retrospective metrics.
+|===
+
+The three toggles are the one deliberate exception to "everything is configured here": they
+are inputs of the reusable workflow, so a single repository can opt into `/improve` without
+editing the org-wide file.
+
+On-demand commands (`/review`, `/ask`, `/improve`, `/help`) still work as pull request
+comments in any adopting repository, regardless of the automatic toggles.
+
+[#adding-a-repository]
+== Adding a repository
+
+Add one caller workflow to the repository. No configuration is copied — it inherits this file.
+
+[source,yaml]
+----
+name: PR Agent Review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  # On-demand commands, and how a re-review is requested after pushing fixes — there is
+  # deliberately no automatic re-review on every push.
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  review:
+    uses: cuioss/cuioss-organization/.github/workflows/reusable-pr-agent-review.yml@<sha>
+    secrets: inherit
+----
+
+Prerequisites, all organization-wide and already in place for adopting repositories: the
+`cuioss-review-bot` App installed org-wide, and the organization secrets `REVIEW_APP_ID`,
+`REVIEW_APP_PRIVATE_KEY` and `GEMINI_API_KEY`. Create the `skip-bot-review` label in the
+repository if it does not exist yet.
+
+== See also
+
+* https://github.com/cuioss/coderabbit[`cuioss/coderabbit`] — the equivalent central config for CodeRabbit.
+* https://github.com/cuioss/cuioss-organization/blob/main/docs/automatic-review/[`cuioss-organization/docs/automatic-review/`] — per-reviewer signal-vs-noise analysis and the shared skip-label matrix.
+* https://github.com/cuioss/cuioss-organization/blob/main/.github/workflows/reusable-pr-agent-review.yml[`reusable-pr-agent-review.yml`] — where the skip rules are enforced.
+* https://docs.pr-agent.ai[PR-Agent documentation] — accurate on mechanics, stale on models (<<stale-docs>>).
