@@ -250,10 +250,38 @@ satisfy a naive existence check forever.
 
 Do not remove that gate on the grounds that "the action already fails on error". It does not.
 
-Credentials go in as `GOOGLE_AI_STUDIO.GEMINI_API_KEY`. Use a *billing-enabled* AI Studio key:
-the free tier is rate-limited, and free-tier traffic may be used for training. Vertex AI with
-Workload Identity Federation (`vertex_ai/…` model ids, no long-lived key) is the keyless
-alternative if that ever becomes a requirement.
+[#vertex]
+=== Vertex AI, keyless
+
+The reviewer runs Gemini through **Vertex AI** (`vertex_ai/…` model ids), not AI Studio
+(`gemini/…`). Two reasons: Vertex consumes the GCP free-trial credits, which AI Studio does
+not; and it can be reached through **Workload Identity Federation**, so no Google credential
+is stored in GitHub at all.
+
+pr-agent's Vertex path is config-driven — `litellm_ai_handler.py` reads
+`VERTEXAI.VERTEX_PROJECT` / `VERTEXAI.VERTEX_LOCATION` and hands them to LiteLLM — while
+authentication itself is plain Application Default Credentials.
+
+Project and location are deliberately **not** in this file. They are deployment identity
+rather than review tuning, so the reusable workflow passes them from organization variables
+(`GCP_PROJECT_ID`, `GCP_VERTEX_LOCATION`, default `global`), which also keeps the GCP project
+id out of a public repository. Everything that *is* review tuning stays here.
+
+Two container boundaries have to be crossed by hand in the workflow, and getting either wrong
+produces an authentication failure inside the reviewer that looks like nothing at all:
+
+* **Path.** `google-github-actions/auth` writes its credentials file into `$GITHUB_WORKSPACE`
+(deliberately, so Docker actions can read it) and reports a *host* path. The reviewer is a
+Docker action with that workspace mounted at `/github/workspace`, so only the basename is
+reusable — the host path does not resolve inside the container.
+* **Environment.** A Docker action receives only the variables named in its own `env:` block,
+plus the standard `GITHUB_*` / `RUNNER_*` set. Exporting `GOOGLE_APPLICATION_CREDENTIALS` to
+`$GITHUB_ENV`, as the auth action does, does **not** forward it into the container; it has to
+be restated on the reviewer step.
+
+The AI Studio path remains available as an escape hatch: set a `gemini/…` model id here and
+supply `GEMINI_API_KEY`. Use a *billing-enabled* key if you do — the free tier is rate-limited
+and its traffic may be used for training.
 
 [#charter]
 == Charter: why security-weighted
@@ -368,10 +396,18 @@ jobs:
     secrets: inherit
 ----
 
-Prerequisites, all organization-wide and already in place for adopting repositories: the
-`cuioss-review-bot` App installed org-wide, and the organization secrets `REVIEW_APP_ID`,
-`REVIEW_APP_PRIVATE_KEY` and `GEMINI_API_KEY`. Create the `skip-bot-review` label in the
-repository if it does not exist yet.
+The caller must grant `id-token: write` — that is what lets the reusable workflow mint the
+OIDC token Workload Identity Federation exchanges for GCP credentials.
+
+Prerequisites, all organization-wide and already in place for adopting repositories:
+
+* the `cuioss-review-bot` App installed org-wide;
+* organization secrets `REVIEW_APP_ID` and `REVIEW_APP_PRIVATE_KEY`;
+* organization variables `GCP_WIF_PROVIDER`, `GCP_REVIEW_SERVICE_ACCOUNT`, `GCP_PROJECT_ID`
+(and optionally `GCP_VERTEX_LOCATION`, default `global`) — variables, not secrets, because
+none of them is a credential.
+
+Create the `skip-bot-review` label in the repository if it does not exist yet.
 
 == See also
 
