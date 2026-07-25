@@ -11,8 +11,14 @@
 # Google AI Studio. The upstream docs page still lists only `gemini/gemini-1.5-flash`; the
 # authoritative list is the MAX_TOKENS registry in pr_agent/algo/__init__.py, which carries
 # the 3.x line at 1M context. See README.adoc "Upstream docs are stale".
-model = "gemini/gemini-3.5-pro"
-fallback_models = ["gemini/gemini-3.5-flash"]
+#
+# Model choice is evidence-based, not aspirational: `gemini/gemini-3.5-pro` returns
+#   404 models/gemini-3.5-pro is not found for API version v1alpha
+# on this org's AI Studio key, while `gemini-3.5-flash` reaches the model (it failed later,
+# on billing) — so flash is served and pro is not. Re-test pro by editing this line if the
+# entitlement changes; a wrong model id here costs one silent, review-less run per PR.
+model = "gemini/gemini-3.5-flash"
+fallback_models = ["gemini/gemini-2.5-pro"]
 
 # The reviewer never pushes code, so it never needs elevated permissions. This lets every
 # caller workflow run without `contents: write`.

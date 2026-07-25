@@ -224,9 +224,31 @@ which registers the current line — `gemini/gemini-2.5-flash`, `gemini/gemini-2
 `vertex_ai/` mirrors — all at 1M context. No `custom_model_max_tokens` override is needed for
 any of them.
 
+Being registered in `MAX_TOKENS` does **not** mean the key can serve it. On this org's AI
+Studio key, `gemini/gemini-3.5-pro` returns `404 models/gemini-3.5-pro is not found for API
+version v1alpha`, while `gemini/gemini-3.5-flash` reaches the model. Verify a model id against
+the key before configuring it here — a wrong id costs one silent, review-less run per pull
+request (see <<no-self-report>>).
+
 Related: `reasoning_effort` is mapped onto Gemini's thinking budget by LiteLLM, and PR-Agent
 special-cases the 2.5 models because the configured effort would otherwise be dropped
 silently. Relevant if per-pull-request cost ever needs tuning.
+
+[#no-self-report]
+=== PR-Agent cannot report its own failure
+
+Its GitHub Action runner catches its own exceptions, logs them at WARNING/ERROR, and **still
+exits 0**. A run whose every model call failed — wrong model id, exhausted API credits,
+provider outage — reports a green check and posts nothing. Both failure modes above were first
+observed exactly that way: a successful job with no review.
+
+The reusable workflow therefore ends with a fail-closed *published-review gate*: it timestamps
+the run, then asserts afterwards that a comment authored by the reviewer App and headed
+`## PR Reviewer Guide` has an `updated_at` at or after that timestamp. Mere existence would not
+do — the review comment is persistent and updated in place, so an earlier run's comment would
+satisfy a naive existence check forever.
+
+Do not remove that gate on the grounds that "the action already fails on error". It does not.
 
 Credentials go in as `GOOGLE_AI_STUDIO.GEMINI_API_KEY`. Use a *billing-enabled* AI Studio key:
 the free tier is rate-limited, and free-tier traffic may be used for training. Vertex AI with
