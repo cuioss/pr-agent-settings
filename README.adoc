@@ -224,11 +224,18 @@ which registers the current line — `gemini/gemini-2.5-flash`, `gemini/gemini-2
 `vertex_ai/` mirrors — all at 1M context. No `custom_model_max_tokens` override is needed for
 any of them.
 
-Being registered in `MAX_TOKENS` does **not** mean the key can serve it. On this org's AI
-Studio key, `gemini/gemini-3.5-pro` returns `404 models/gemini-3.5-pro is not found for API
-version v1alpha`, while `gemini/gemini-3.5-flash` reaches the model. Verify a model id against
-the key before configuring it here — a wrong id costs one silent, review-less run per pull
-request (see <<no-self-report>>).
+Being registered in `MAX_TOKENS` does **not** mean the project can serve it, and this held on
+both backends:
+
+* AI Studio: `gemini/gemini-3.5-pro` → `404 models/gemini-3.5-pro is not found for API version
+v1alpha`.
+* Vertex AI: `vertex_ai/gemini-3.5-pro` → `404 Publisher model … was not found or your project
+does not have access to it`, while `gemini-3.5-flash` serves reviews normally.
+
+Verify a model id against the project before configuring it here. Leading with an unavailable
+model is not merely cosmetic: it costs two failed calls and several seconds per run before the
+fallback takes over, and before the gate below existed it cost one silent, review-less run per
+pull request (see <<no-self-report>>).
 
 Related: `reasoning_effort` is mapped onto Gemini's thinking budget by LiteLLM, and PR-Agent
 special-cases the 2.5 models because the configured effort would otherwise be dropped
@@ -238,17 +245,26 @@ silently. Relevant if per-pull-request cost ever needs tuning.
 === PR-Agent cannot report its own failure
 
 Its GitHub Action runner catches its own exceptions, logs them at WARNING/ERROR, and **still
-exits 0**. A run whose every model call failed — wrong model id, exhausted API credits,
-provider outage — reports a green check and posts nothing. Both failure modes above were first
-observed exactly that way: a successful job with no review.
+exits 0**. A run whose every model call failed — wrong model id, no entitlement to the model,
+exhausted credits, provider outage — reports a green check. Every failure mode described above
+was first observed exactly that way: a successful job with no review.
 
-The reusable workflow therefore ends with a fail-closed *published-review gate*: it timestamps
-the run, then asserts afterwards that a comment authored by the reviewer App and headed
-`## PR Reviewer Guide` has an `updated_at` at or after that timestamp. Mere existence would not
-do — the review comment is persistent and updated in place, so an earlier run's comment would
-satisfy a naive existence check forever.
+The reusable workflow therefore ends with a fail-closed gate. Its oracle is the reviewer step's
+own **structured output**, not a published comment: `pr_reviewer.py` calls
+`github_action_output(data, 'review')` from `_prepare_pr_review()`, which runs *before* the
+publish decision, so `steps.review.outputs.review` exists whenever the model produced a review
+and is absent whenever every model call failed.
 
-Do not remove that gate on the grounds that "the action already fails on error". It does not.
+Gating on the comment instead is wrong in both directions, and the first version of this gate
+got it wrong in the first one:
+
+* A **clean review publishes nothing** under `publish_output_no_suggestions = false` (our
+setting, to suppress "No major issues detected" noise). A working reviewer that found no issues
+would fail the build.
+* The review comment is **persistent and updated in place**, so a stale comment from an earlier
+run satisfies a naive existence check forever.
+
+Do not remove the gate on the grounds that "the action already fails on error". It does not.
 
 [#vertex]
 === Vertex AI, keyless

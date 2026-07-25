@@ -21,8 +21,14 @@
 # longer passes it, so a `gemini/…` id here would fail at the model call. Reviving that route
 # means re-creating the secret AND re-adding the env line. A wrong model id used to cost one
 # silent, review-less run per PR; the published-review gate now makes it fail loudly instead.
-model = "vertex_ai/gemini-3.5-pro"
-fallback_models = ["vertex_ai/gemini-3.5-flash"]
+# Evidence, not aspiration: on this project `vertex_ai/gemini-3.5-pro` returns
+#   404 Publisher model .../models/gemini-3.5-pro was not found or your project does not
+#       have access to it
+# while `gemini-3.5-flash` serves reviews normally. Leading with pro cost two failed calls and
+# ~7s per run before the fallback took over, so flash leads. Promote pro the day the project is
+# entitled to it — a security reviewer benefits from the stronger model.
+model = "vertex_ai/gemini-3.5-flash"
+fallback_models = ["vertex_ai/gemini-2.5-flash"]
 
 # The reviewer never pushes code, so it never needs elevated permissions. This lets every
 # caller workflow run without `contents: write`.
