@@ -410,15 +410,22 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
+  id-token: write   # required — Workload Identity Federation for Vertex AI
 
 jobs:
   review:
     uses: cuioss/cuioss-organization/.github/workflows/reusable-pr-agent-review.yml@<sha>
-    secrets: inherit
+    secrets:
+      REVIEW_APP_ID: ${{ secrets.REVIEW_APP_ID }}
+      REVIEW_APP_PRIVATE_KEY: ${{ secrets.REVIEW_APP_PRIVATE_KEY }}
 ----
 
-The caller must grant `id-token: write` — that is what lets the reusable workflow mint the
-OIDC token Workload Identity Federation exchanges for GCP credentials.
+`id-token: write` is what lets the reusable workflow mint the OIDC token Workload Identity
+Federation exchanges for GCP credentials.
+
+Map the two secrets explicitly rather than using `secrets: inherit`: those two are the whole
+requirement now that Vertex AI is keyless, and `inherit` would hand the reviewer every secret
+the calling repository can see.
 
 Prerequisites, all organization-wide and already in place for adopting repositories:
 
