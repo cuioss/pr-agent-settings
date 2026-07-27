@@ -232,10 +232,30 @@ v1alpha`.
 * Vertex AI: `vertex_ai/gemini-3.5-pro` → `404 Publisher model … was not found or your project
 does not have access to it`, while `gemini-3.5-flash` serves reviews normally.
 
-Verify a model id against the project before configuring it here. Leading with an unavailable
-model is not merely cosmetic: it costs two failed calls and several seconds per run before the
-fallback takes over, and before the gate below existed it cost one silent, review-less run per
-pull request (see <<no-self-report>>).
+That `404` is ambiguous by construction — one message covers "not entitled", "not offered in
+this region", and "wrong id". Rather than resolve it by hand, `model` leads with the strongest
+candidate and `fallback_models` descends through the Pro tier to the Flash pair that is known to
+serve. LiteLLM falls through on a `404`, so the configuration selects the best model the project
+can actually serve, and the run log names which rung answered. Pin the winner and drop the dead
+rungs once one run has spoken.
+
+The floor of the ladder is what served before it existed, so the worst case is the previous
+behaviour plus a few seconds. Before the gate below existed an unavailable model cost one
+silent, review-less run per pull request (see <<no-self-report>>) — it now fails loudly instead,
+which is what makes leading with the optimistic choice safe.
+
+[#context-window]
+=== The context window caps what the reviewer sees
+
+`max_model_tokens` is set to `128000`. Upstream defaults it to `32000`, and with
+`large_patch_policy = "clip"` any diff above the limit is truncated *before the model reads it*.
+A 100-file pull request was reviewed on a clipped diff under the default.
+
+This is the half of a model upgrade that is easy to miss: promoting to a larger-context model
+while leaving the cap at 32000 buys the stronger model and still feeds it a truncated diff.
+`128000` is a deliberate middle — roughly 4x the default, comfortably above the largest diff
+observed here (~22k tokens), and far below the 1M ceiling, because an unbounded window turns one
+pathological pull request into a pathological bill.
 
 Related: `reasoning_effort` is mapped onto Gemini's thinking budget by LiteLLM, and PR-Agent
 special-cases the 2.5 models because the configured effort would otherwise be dropped
@@ -287,6 +307,23 @@ show two.
 The price is one short comment per clean pull request. Pay it. A reviewer whose agreement is
 unobservable is worth far less than one that says so, and silence that could mean either
 "approved" or "broken" is not a signal at all.
+
+That price has to stay *one* comment, which is why `final_update_message` is `false`. Upstream
+defaults it to `true`, posting a second, separate comment every time the persistent review is
+refreshed:
+
+....
+**[Persistent review](<url>)** updated to latest commit <url>
+....
+
+It carries no review content, and it is redundant even as a pointer — the same code path already
+stamps `(Review updated until commit …)` into the persistent comment's own header. It is not
+merely cosmetic either: the comment is authored by the reviewer identity, so a consumer that
+collects the bot's comments as review findings files it as a finding requiring triage.
+
+Note the interaction, because it runs the wrong way: publishing clean reviews *increases* this
+noise. Clean pull requests now carry a persistent comment, so there is something to "update" on
+every subsequent review, where previously there was nothing. The two settings belong together.
 
 [#vertex]
 === Vertex AI, keyless
