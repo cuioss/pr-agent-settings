@@ -21,14 +21,36 @@
 # longer passes it, so a `gemini/…` id here would fail at the model call. Reviving that route
 # means re-creating the secret AND re-adding the env line. A wrong model id used to cost one
 # silent, review-less run per PR; the published-review gate now makes it fail loudly instead.
-# Evidence, not aspiration: on this project `vertex_ai/gemini-3.5-pro` returns
+# The list below is a LADDER, and it is deliberately self-selecting rather than researched.
+# `vertex_ai/gemini-3.5-pro` previously returned
 #   404 Publisher model .../models/gemini-3.5-pro was not found or your project does not
 #       have access to it
-# while `gemini-3.5-flash` serves reviews normally. Leading with pro cost two failed calls and
-# ~7s per run before the fallback took over, so flash leads. Promote pro the day the project is
-# entitled to it — a security reviewer benefits from the stronger model.
-model = "vertex_ai/gemini-3.5-flash"
-fallback_models = ["vertex_ai/gemini-2.5-flash"]
+# which is ambiguous by construction: it covers "not entitled" AND "not offered in this region"
+# AND "wrong id". Rather than resolve that by hand, lead with the strongest model and let
+# LiteLLM fall through — a 404 costs a few seconds per run, and whichever rung actually answers
+# is named in the run log. Pin the winner and drop the dead rungs once one run has spoken.
+#
+# The floor of the ladder is the pair that serves today, so the worst case is exactly the
+# previous behaviour. Every id here is registered in pr_agent/algo/__init__.py MAX_TOKENS;
+# an unregistered id is rejected before any call is made.
+model = "vertex_ai/gemini-3.5-pro"
+fallback_models = [
+    "vertex_ai/gemini-3.1-pro",
+    "vertex_ai/gemini-2.5-pro",
+    "vertex_ai/gemini-3.5-flash",
+    "vertex_ai/gemini-2.5-flash",
+]
+
+# Upstream defaults this to 32000, which silently caps what the reviewer ever SEES: with
+# large_patch_policy = "clip", any diff above the limit is truncated before the model reads it.
+# A 100-file pull request was reviewed on a clipped diff at the default. Promoting to a
+# larger-context model without raising this would buy the stronger model and still feed it a
+# truncated diff.
+#
+# 128000 is a deliberate middle: ~4x the default, comfortably above our largest observed diff
+# (~22k tokens), and still far below the 1M window — an unbounded ceiling turns one pathological
+# pull request into a pathological bill.
+max_model_tokens = 128000
 
 # The reviewer never pushes code, so it never needs elevated permissions. This lets every
 # caller workflow run without `contents: write`.
@@ -105,5 +127,19 @@ publish_output_no_suggestions = true
 # what is already on the PR.
 persistent_comment = true
 persistent_inline_comments = true
+
+# Upstream defaults this to true, which posts a SECOND, separate comment every time the
+# persistent review is refreshed:
+#   **[Persistent review](<url>)** updated to latest commit <url>
+# (git_provider.py publish_persistent_comment_full). It carries no review content, and it is
+# redundant even as a pointer: the same call already stamps "(Review updated until commit …)"
+# into the persistent comment's own header.
+#
+# It is not merely cosmetic. The comment is authored by the reviewer identity, so a consumer
+# that collects the bot's comments as review findings — plan-marshall's automatic-review does
+# exactly that — files it as a finding requiring triage. Setting publish_output_no_suggestions
+# to true above made this worse, not better: clean pull requests now carry a persistent comment,
+# so there is something to "update" on every subsequent review.
+final_update_message = false
 
 num_max_findings = 5
