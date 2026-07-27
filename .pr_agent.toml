@@ -85,7 +85,21 @@ enable_intro_text = false
 enable_help_text = false
 enable_review_labels_security = false       # labels are not part of our workflow
 enable_review_labels_effort = false
-publish_output_no_suggestions = false       # no "No major issues detected" comment on a clean diff
+# Publish even when the review found nothing. This was `false` to suppress "No major issues
+# detected" noise, but that made a clean review and a total failure INDISTINGUISHABLE at the pull
+# request — both show no comment. It cost a real misread: plan-marshall#1024 was recorded as having
+# had zero bot review and taken toward a merge decision on that basis, when this reviewer had in
+# fact read the diff and cleared it ({"key_issues_to_review": [], "security_concerns": "No"}),
+# visible only in a workflow log nobody reads.
+#
+# It also starved the consumer pipeline: plan-marshall's automatic-review collects `pr-comment`
+# findings as its evidence of participation, so a reviewer that never speaks can never be counted
+# — `enabled_bots` would claim three reviewers while the record could only ever show two.
+#
+# The cost is one short comment per clean pull request. That is the price of a reviewer whose
+# agreement is observable, and a bot that is invisible whenever it agrees is worth far less than
+# one that says so.
+publish_output_no_suggestions = true
 
 # One updated comment per PR, and inline suggestions fingerprinted so a push does not repost
 # what is already on the PR.

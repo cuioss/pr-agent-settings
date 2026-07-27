@@ -258,13 +258,35 @@ and is absent whenever every model call failed.
 Gating on the comment instead is wrong in both directions, and the first version of this gate
 got it wrong in the first one:
 
-* A **clean review publishes nothing** under `publish_output_no_suggestions = false` (our
-setting, to suppress "No major issues detected" noise). A working reviewer that found no issues
-would fail the build.
+* A **clean review may publish nothing**, depending on `publish_output_no_suggestions`. A working
+reviewer that found no issues would fail the build.
 * The review comment is **persistent and updated in place**, so a stale comment from an earlier
 run satisfies a naive existence check forever.
 
 Do not remove the gate on the grounds that "the action already fails on error". It does not.
+
+[#silence-is-ambiguous]
+=== Why a clean review is published
+
+`publish_output_no_suggestions` is `true`, so the reviewer comments even when it found nothing.
+It was `false` at first, to suppress "No major issues detected" noise. That was a mistake, for a
+reason worth stating plainly: **it made a clean review and a total failure indistinguishable at
+the pull request.** Both show no comment. The difference existed only in a workflow log.
+
+The cost was not hypothetical. `plan-marshall#1024` was recorded as having had zero automated
+review and taken toward a merge decision on that basis, while this reviewer had read the diff and
+cleared it — `{"relevant_tests": "yes", "key_issues_to_review": [], "security_concerns": "No"}`.
+Two other reviewers had genuinely refused that pull request on rate limits, so "no comment" read
+as a third refusal.
+
+It also starved the consumer pipeline. plan-marshall's `automatic-review` step collects
+`pr-comment` findings as its evidence that a bot participated, so a reviewer that never speaks can
+never be counted: the configuration would claim three reviewers while the record could only ever
+show two.
+
+The price is one short comment per clean pull request. Pay it. A reviewer whose agreement is
+unobservable is worth far less than one that says so, and silence that could mean either
+"approved" or "broken" is not a signal at all.
 
 [#vertex]
 === Vertex AI, keyless
