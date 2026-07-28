@@ -284,12 +284,40 @@ A 100-file pull request was reviewed on a clipped diff under the default.
 This is the half of a model upgrade that is easy to miss: promoting to a larger-context model
 while leaving the cap at 32000 buys the stronger model and still feeds it a truncated diff.
 `128000` is a deliberate middle — roughly 4x the default, comfortably above the largest diff
-observed here (~22k tokens), and far below the 1M ceiling, because an unbounded window turns one
-pathological pull request into a pathological bill.
+observed here, and far below the 1M ceiling, because an unbounded window turns one pathological
+pull request into a pathological bill.
+
+The headroom is not theoretical. A 19-file pull request logged
+`Tokens: 57449, total tokens under limit: 128000, returning full diff.` — nearly twice the
+upstream default, and it would have been silently clipped under it. The two other reviewers both
+refused that same diff outright (one on a 150000-character limit, one on a rate limit), which is
+the case for keeping this reviewer's own limits generous: it is sometimes the only one that reads
+the change.
 
 Related: `reasoning_effort` is mapped onto Gemini's thinking budget by LiteLLM, and PR-Agent
 special-cases the 2.5 models because the configured effort would otherwise be dropped
 silently. Relevant if per-pull-request cost ever needs tuning.
+
+[#patch-extension]
+=== `patch_extension_skip_types` does not skip the file
+
+The name reads as an exclusion list. It is not one, and reading it as one produces a confident
+wrong conclusion — that markdown changes go unreviewed.
+
+`git_patch_processing.py` `extend_patch()` calls `should_skip_patch(filename)` and, on a match,
+returns the patch *unchanged*. The hunks still reach the model. What is skipped is only the patch
+**extension**: the `patch_extra_lines_before` / `patch_extra_lines_after` source lines that are
+otherwise spliced around each hunk to give the model surrounding context.
+
+Nothing else filters markdown either. `md` and `txt` do appear in the `bad_extensions` table of
+`language_extensions.toml`, but under `extra`, not `default` — and that list is only appended when
+`use_extra_bad_extensions` is true, which it is not here. Both gates must be checked before
+concluding a file type is excluded; checking one is how the wrong conclusion above is reached.
+
+`.md` is removed from the skip list because in this organization markdown is frequently not
+documentation *about* the code but the contract itself — plan-marshall's skills, standards and
+workflow files are read by the agent at runtime. A diff hunk in a contract document is not
+reviewable without the rule it sits inside. `.txt` keeps the skip.
 
 [#no-self-report]
 === PR-Agent cannot report its own failure
