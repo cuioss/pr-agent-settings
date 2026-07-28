@@ -405,6 +405,43 @@ verdict, in both directions: a clean result is not evidence, and a finding is no
 `max_model_tokens` makes clipping rarer; it does not make a clipped review detectable, and that
 log line remains the only signal.
 
+[#description-channel]
+=== The PR description is the only route for authored intent — and it was truncated
+
+The reviewer judges code against generic correctness plus this organization's documented rules. It
+has no knowledge of what a change was *supposed* to do. The one channel that can carry that is the
+pull request description, which `pr_reviewer_prompts.toml` places in the `--PR Info--` block:
+
+----
+PR Description:
+======
+{{ description|trim }}
+======
+----
+
+*It is the only such channel, and the alternative does not work.* `repo_context_files` looks like
+the natural place for a design document, but `repo_context.py` fetches those files with
+`from_default_branch=True` — a document committed on the PR branch is invisible to the reviewer,
+silently. Setting `repo_context_from_default_branch = false` to reach it would let pull request
+content rewrite the reviewer's own instructions, which is exactly the injection this setup closes
+on purpose. A per-plan path also cannot be expressed in a fixed central list.
+
+*The defect.* Upstream defaults `max_description_tokens` to `500`, and
+`git_provider.py:250-262` clips the description with `clip_tokens()` before it reaches the prompt.
+plan-marshall#1027's body is 4503 characters — roughly 1100-1300 tokens — so well over half never
+reached the model. No marker, no log line. This is the description channel's version of
+<<clipped-diff>>: the reviewer receives a fragment and treats it as the complete statement of
+intent. Now `2000`.
+
+[NOTE]
+====
+*Feeding intent to a reviewer is not free.* Stating what a change was meant to do invites the
+model to confirm the account rather than examine the code — the same suppression pressure, arriving
+as context instead of as instruction. If authored intent is ever routed here deliberately, it
+belongs in the prompt as a *claim to be verified*: report where the implementation diverges from
+it, and never treat conformance with it as evidence of correctness.
+====
+
 [#patch-extension]
 === `patch_extension_skip_types` does not skip the file
 

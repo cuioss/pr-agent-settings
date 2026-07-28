@@ -104,6 +104,23 @@ temperature = 1.0
 # limit must be read as INCONCLUSIVE rather than clean. See README.adoc "A clipped diff".
 max_model_tokens = 256000
 
+# Upstream defaults this to 500, which silently truncated the PR description on most of our pull
+# requests. git_provider.py:250-262 clips the description with clip_tokens() before it reaches the
+# prompt, and pr_reviewer_prompts.toml places it in the "--PR Info--" block the reviewer reads for
+# intent. plan-marshall#1027's body is 4503 characters — roughly 1100-1300 tokens — so well over
+# half of it never reached the model, with no marker and no log line.
+#
+# This is the description channel's version of the clipped-diff defect: the reviewer receives a
+# fragment and treats it as the whole statement of intent. It matters more here than it looks,
+# because the PR description is the ONLY route by which authored intent reaches this reviewer —
+# repo_context_files reads the DEFAULT BRANCH (repo_context.py passes from_default_branch=True),
+# so a document committed on the PR branch is invisible to it, and pointing it at the head would
+# let PR content rewrite the reviewer's own instructions.
+#
+# 2000 gives roughly 4x headroom over the largest body observed. Cost is negligible against a
+# 256000-token window.
+max_description_tokens = 2000
+
 # Upstream defaults this to [".md", ".txt"]. The name is misleading and cost us a wrong reading
 # once: it does NOT exclude those files from the review. git_patch_processing.py extend_patch()
 # calls should_skip_patch() and, when it matches, returns the patch UNCHANGED — the hunks still
