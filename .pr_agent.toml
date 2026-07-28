@@ -66,14 +66,25 @@ custom_model_max_tokens = 1048576
 
 # Upstream defaults this to 32000, which silently caps what the reviewer ever SEES: with
 # large_patch_policy = "clip", any diff above the limit is truncated before the model reads it.
-# A 100-file pull request was reviewed on a clipped diff at the default. Promoting to a
-# larger-context model without raising this would buy the stronger model and still feed it a
-# truncated diff.
+# Promoting to a larger-context model without raising this would buy the stronger model and
+# still feed it a truncated diff.
 #
-# 128000 is a deliberate middle: ~4x the default, comfortably above our largest observed diff
-# (~22k tokens), and still far below the 1M window — an unbounded ceiling turns one pathological
-# pull request into a pathological bill.
-max_model_tokens = 128000
+# Clipping does not merely reduce coverage — it manufactures CONFIDENT WRONG findings, which is
+# worse than a missed one. API-Sheriff#118 (68 files, 6706 additions, AES-GCM cookie sealing)
+# logged `Tokens: 168188, total tokens over limit: 128000` and reported an "Uncompleted Future
+# Hang": that `leader.complete(outcome)` could be bypassed on a throw, leaving coalesced waiters
+# blocked forever. The method has an unconditional `finally { leader.complete(...) }` that makes
+# it impossible — and the reviewer QUOTED the opening of that very finally block, clipped off
+# just before the line that refutes it. A truncated diff reads as a complete one to the model.
+#
+# 256000 is sized on evidence, not taste: 2x the largest real diff observed (168188), which keeps
+# a normal-sized security change in this org inside the window. Still a quarter of the 1M
+# ceiling, because unbounded turns one pathological pull request into a pathological bill.
+#
+# Raising this does NOT make a clipped review detectable — it only makes clipping rarer. The
+# "over limit" line in the run log remains the only signal, and a review published above the
+# limit must be read as INCONCLUSIVE rather than clean. See README.adoc "A clipped diff".
+max_model_tokens = 256000
 
 # Upstream defaults this to [".md", ".txt"]. The name is misleading and cost us a wrong reading
 # once: it does NOT exclude those files from the review. git_patch_processing.py extend_patch()

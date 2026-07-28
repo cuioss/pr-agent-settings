@@ -300,15 +300,11 @@ which is what makes leading with the optimistic choice safe.
 [#context-window]
 === The context window caps what the reviewer sees
 
-`max_model_tokens` is set to `128000`. Upstream defaults it to `32000`, and with
+`max_model_tokens` is set to `256000`. Upstream defaults it to `32000`, and with
 `large_patch_policy = "clip"` any diff above the limit is truncated *before the model reads it*.
-A 100-file pull request was reviewed on a clipped diff under the default.
 
 This is the half of a model upgrade that is easy to miss: promoting to a larger-context model
 while leaving the cap at 32000 buys the stronger model and still feeds it a truncated diff.
-`128000` is a deliberate middle — roughly 4x the default, comfortably above the largest diff
-observed here, and far below the 1M ceiling, because an unbounded window turns one pathological
-pull request into a pathological bill.
 
 The headroom is not theoretical. A 19-file pull request logged
 `Tokens: 57449, total tokens under limit: 128000, returning full diff.` — nearly twice the
@@ -317,9 +313,53 @@ refused that same diff outright (one on a 150000-character limit, one on a rate 
 the case for keeping this reviewer's own limits generous: it is sometimes the only one that reads
 the change.
 
+`256000` is sized on the largest diff actually observed (168188 tokens, see below) with a 2x
+margin, so a normal security change in this organization fits inside the window. It remains a
+quarter of the 1M ceiling, because an unbounded window turns one pathological pull request into a
+pathological bill.
+
 Related: `reasoning_effort` is mapped onto Gemini's thinking budget by LiteLLM, and PR-Agent
 special-cases the 2.5 models because the configured effort would otherwise be dropped
 silently. Relevant if per-pull-request cost ever needs tuning.
+
+[#clipped-diff]
+=== A clipped diff produces confident wrong findings, not fewer findings
+
+The intuition is that clipping costs coverage — the reviewer sees less, so it reports less. The
+observed behaviour is worse: it reports things that are *false*, with full confidence, because a
+truncated diff is indistinguishable from a complete one from inside the model.
+
+API-Sheriff#118 — 68 files, 6706 additions, a stateless cookie session sealed with AES-GCM —
+logged `Tokens: 168188, total tokens over limit: 128000` and reported an *Uncompleted Future
+Hang*: that `leader.complete(outcome)` is bypassed when `performRefresh` throws, leaving every
+coalesced waiter blocked forever on `existing.join()`.
+
+The method it flagged:
+
+[source,java]
+----
+try {
+    RefreshOutcome outcome = performRefresh(cookieHeader, now);
+    leader.complete(outcome);
+    return outcome;
+} finally {
+    // Guarantee coalesced waiters never hang: a no-op when the leader already completed
+    // above, but a deterministic FAILED when performRefresh threw before completing it
+    leader.complete(RefreshOutcome.failed());
+    inFlight.remove(sessionId, leader);
+}
+----
+
+The `finally` block completes the future unconditionally, and `CompletableFuture.complete()` is a
+no-op once completed — so the happy path is untouched and the throw path yields a deterministic
+`FAILED`. Waiters cannot hang. The reviewer quoted the *opening of that very `finally` block*,
+clipped off immediately before the line that refutes its own claim.
+
+*The operational rule.* A review published on a run whose log says `total tokens over limit` is
+*inconclusive* — neither a clearance nor a finding. Check the token line before reading the
+verdict, in both directions: a clean result is not evidence, and a finding is not either. Raising
+`max_model_tokens` makes clipping rarer; it does not make a clipped review detectable, and that
+log line remains the only signal.
 
 [#patch-extension]
 === `patch_extension_skip_types` does not skip the file
