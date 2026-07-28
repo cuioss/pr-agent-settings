@@ -107,8 +107,15 @@ credentials and the three tool toggles (see <<tool-toggles>>).
 
 == Learnings
 
-The five things below cost real investigation to establish. They are recorded here so nobody
-has to re-derive them.
+Each item below cost real investigation to establish, and several were established only after
+getting them wrong first. They are recorded here so nobody has to re-derive them.
+
+A theme runs through most of them, and it is the most useful thing on this page: *this setup's
+characteristic failure is a confident signal that hides a caveat*, not an error. A clean review
+indistinguishable from total failure; a charter that could only ever return empty; a clipped diff
+reviewed as though complete; a dead setting that appears in every run's resolved-config dump.
+Each looked healthy from the outside. When something here seems fine, prefer checking the
+mechanism over trusting the appearance.
 
 [#cross-repo-token]
 === The reviewer token must be able to read two repositories
@@ -418,6 +425,80 @@ concluding a file type is excluded; checking one is how the wrong conclusion abo
 documentation *about* the code but the contract itself — plan-marshall's skills, standards and
 workflow files are read by the agent at runtime. A diff hunk in a contract document is not
 reviewable without the rule it sits inside. `.txt` keeps the skip.
+
+[#repo-context-budget]
+=== `repo_context_max_lines` is a shared budget that evicts silently
+
+`repo_context_files` is the *entire* codebase-awareness surface this reviewer has (see
+<<diff-only-ceiling>>), which makes its one non-obvious mechanic worth knowing before it costs
+something.
+
+`repo_context_max_lines` (default `500`) is *not* a per-file limit. `algo/repo_context.py` walks
+the configured files in order, subtracting each file's header, footer and content lines from one
+shared budget. When a file does not fit it is truncated with a `...(truncated)...` marker — and
+then the loop `break`s. Every remaining file is dropped with *no marker at all*.
+
+So the failure is ordered and asymmetric: the file that straddles the boundary shows evidence of
+truncation, and the files after it vanish leaving none. A reader checking whether the context was
+delivered would find the marker on file two and no sign that file three ever existed.
+
+*Current headroom.* Not binding today — plan-marshall's `CLAUDE.md` is 83 lines and
+API-Sheriff's is 151, against a budget of 500. But the two ways to cross it are both ordinary
+maintenance: adding a third context file, or letting a `CLAUDE.md` grow. Neither produces an
+error.
+
+If a repository's project rules stop being honoured for no apparent reason, count the lines
+before suspecting the model.
+
+[#diff-only-ceiling]
+=== This reviewer is diff-only, and that is a ceiling rather than a setting
+
+Worth recording so nobody re-runs the comparison expecting to find a configuration fix.
+
+The strongest differentiator among current review agents is *whole-codebase context* — following
+the dependency graph instead of reading the diff in isolation. Vendors in that class attribute a
+70–80% reduction in false positives to it, on the reasoning that most false positives come from
+not knowing a project's conventions rather than from misreading the code.
+
+PR-Agent does not do this. Its entire codebase-awareness surface is `repo_context_files`, which
+is a fixed list of instruction documents, not a code index. No configuration key closes that gap;
+it would take a different tool.
+
+Two consequences that shape how this reviewer should be used:
+
+* *Its findings are strongest where the defect is local to the diff.* Both defects it has
+recovered here — a session-identity collision and a sequence-number reuse — were visible within
+the changed code once the model could see all of it. Do not expect it to reason about a caller
+three files away that the pull request did not touch.
+* *Diff completeness matters more for this tool than for an indexing one.* A clipped diff removes
+the only context it has, which is why <<clipped-diff>> is a correctness issue here and not merely
+a coverage one.
+
+The mitigation we do have is the ensemble: three reviewers with different mandates, where the
+published benchmarks agree the tools disagree. API-Sheriff#118 is the concrete case — this
+reviewer found a session-collision defect that both of the other two missed.
+
+[#recall-over-precision]
+=== Recall beats precision for this reviewer, and that is deliberate
+
+The charter (<<charter-suppression>>) was rewritten to report more, not less, and the tuning
+pressure over time will be to narrow it again whenever a finding turns out to be wrong. That
+pressure should be resisted, for a reason worth writing down while the evidence is fresh.
+
+The costs are asymmetric. A false positive costs one dismissal by a human who has the code in
+front of them. A missed defect ships. This reviewer's measured failure mode was not noise — it
+was five consecutive pull requests of byte-identical silence, and a security-weighted charter
+that could not report a TOCTOU race it named in its own instructions.
+
+There is one caveat on the other side, from teams who have published real numbers on this: a
+single agent accumulating rules in one growing prompt eventually degrades, and the remedy is
+several narrowly-scoped passes rather than one broader one. Google's Gemini 3 guidance points the
+same way — the model *"may over-analyze verbose or overly complex prompt engineering"* and
+rewards direct, simplified instructions.
+
+*The practical rule.* Treat charter growth as the warning sign, not finding volume. If the
+category list keeps expanding past roughly ten entries, the answer is a second focused pass — not
+an eleventh bullet.
 
 [#no-self-report]
 === PR-Agent cannot report its own failure
