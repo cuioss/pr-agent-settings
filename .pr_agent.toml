@@ -21,25 +21,39 @@
 # longer passes it, so a `gemini/…` id here would fail at the model call. Reviving that route
 # means re-creating the secret AND re-adding the env line. A wrong model id used to cost one
 # silent, review-less run per PR; the published-review gate now makes it fail loudly instead.
-# The list below is a LADDER, and it is deliberately self-selecting rather than researched.
-# `vertex_ai/gemini-3.5-pro` previously returned
-#   404 Publisher model .../models/gemini-3.5-pro was not found or your project does not
-#       have access to it
-# which is ambiguous by construction: it covers "not entitled" AND "not offered in this region"
-# AND "wrong id". Rather than resolve that by hand, lead with the strongest model and let
-# LiteLLM fall through — a 404 costs a few seconds per run, and whichever rung actually answers
-# is named in the run log. Pin the winner and drop the dead rungs once one run has spoken.
+# This list is EVIDENCE, not preference. A self-selecting ladder was run once on purpose to find
+# out what this project can serve, and plan-marshall#1031's run log answered:
 #
-# The floor of the ladder is the pair that serves today, so the worst case is exactly the
-# previous behaviour. Every id here is registered in pr_agent/algo/__init__.py MAX_TOKENS;
-# an unregistered id is rejected before any call is made.
-model = "vertex_ai/gemini-3.5-pro"
+#   gemini-3.5-pro   404 — not available to this project
+#   gemini-3.1-pro   404 — not available to this project
+#   gemini-2.5-pro   429 throttled, retried, then SERVED   ("model": "gemini-2.5-pro")
+#
+# Both 404 rungs are therefore removed: they cost ~8 wasted calls and roughly a minute per review
+# to re-learn a fixed fact. Do NOT reinstate a 3.x *pro* id without first confirming the model
+# card offers it — that tier is not available here, and the 404 message ("not found or your
+# project does not have access to it") is ambiguous enough to look like a transient fault.
+#
+# What the project DOES offer from the 3 series is `gemini-3.6-flash` (Model Garden reports
+# `publishers/google/models/gemini-3.6-flash`; the LiteLLM form prepends the provider). It leads
+# here: newest generation, and it sidesteps the 429 backoff that 2.5-pro incurs. `gemini-2.5-pro`
+# sits directly behind it as the reasoning-tier fallback, since a security-weighted charter is
+# exactly the workload where pro-tier depth may still win — if review quality visibly drops,
+# swap the first two entries and the comparison is available immediately.
+model = "vertex_ai/gemini-3.6-flash"
 fallback_models = [
-    "vertex_ai/gemini-3.1-pro",
     "vertex_ai/gemini-2.5-pro",
     "vertex_ai/gemini-3.5-flash",
     "vertex_ai/gemini-2.5-flash",
 ]
+
+# REQUIRED by the model above, not optional tuning. `gemini-3.6-flash` is absent from
+# pr_agent/algo/__init__.py MAX_TOKENS in the pinned image (the table stops at the 3.5 pair), and
+# an unregistered model does not degrade gracefully — utils.py get_max_tokens() RAISES unless
+# custom_model_max_tokens is positive. This value is the model's real window; max_model_tokens
+# below still clamps it, because get_max_tokens() takes the min of the two.
+#
+# Delete this line the day the pinned image registers the model, and not before.
+custom_model_max_tokens = 1048576
 
 # Upstream defaults this to 32000, which silently caps what the reviewer ever SEES: with
 # large_patch_policy = "clip", any diff above the limit is truncated before the model reads it.
