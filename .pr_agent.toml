@@ -66,6 +66,22 @@ custom_model_max_tokens = 1048576
 # pull request into a pathological bill.
 max_model_tokens = 128000
 
+# Upstream defaults this to [".md", ".txt"]. The name is misleading and cost us a wrong reading
+# once: it does NOT exclude those files from the review. git_patch_processing.py extend_patch()
+# calls should_skip_patch() and, when it matches, returns the patch UNCHANGED — the hunks still
+# reach the model. What is skipped is only the patch EXTENSION: the patch_extra_lines_before /
+# _after source lines spliced around each hunk. (Markdown is also absent from the effective
+# bad_extensions list — `md` and `txt` sit in bad_extensions.extra, which is inert while
+# use_extra_bad_extensions is false, as it is here.)
+#
+# `.md` is removed because in this org markdown is not documentation about the code — in
+# plan-marshall it IS the executable contract: skills, standards and workflow files are read by
+# the agent at runtime. A two-line diff in a standards document is not reviewable without the
+# rule it sits inside, whereas a Python hunk usually carries its own context in the identifiers.
+#
+# `.txt` keeps the skip: prose with no contract weight, and no context worth paying for.
+patch_extension_skip_types = [".txt"]
+
 # The reviewer never pushes code, so it never needs elevated permissions. This lets every
 # caller workflow run without `contents: write`.
 restricted_mode = true
