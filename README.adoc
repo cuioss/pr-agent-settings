@@ -113,7 +113,8 @@ getting them wrong first. They are recorded here so nobody has to re-derive them
 A theme runs through most of them, and it is the most useful thing on this page: *this setup's
 characteristic failure is a confident signal that hides a caveat*, not an error. A clean review
 indistinguishable from total failure; a charter that could only ever return empty; a clipped diff
-reviewed as though complete; a dead setting that appears in every run's resolved-config dump.
+reviewed as though complete; a dead setting that appears in every run's resolved-config dump; two
+reviewers agreeing on a clean result because neither could see the file that refutes the change.
 Each looked healthy from the outside. When something here seems fine, prefer checking the
 mechanism over trusting the appearance.
 
@@ -519,10 +520,63 @@ three files away that the pull request did not touch.
 * *Diff completeness matters more for this tool than for an indexing one.* A clipped diff removes
 the only context it has, which is why <<clipped-diff>> is a correctness issue here and not merely
 a coverage one.
+* *A diff can be internally consistent and still be wrong.* This is the sharpest form of the
+ceiling and it has its own case below — see <<untouched-file>>.
 
-The mitigation we do have is the ensemble: three reviewers with different mandates, where the
+The mitigation we have is the ensemble: three reviewers with different mandates, where the
 published benchmarks agree the tools disagree. API-Sheriff#118 is the concrete case — this
-reviewer found a session-collision defect that both of the other two missed.
+reviewer found a session-collision defect that both of the other two missed. <<untouched-file>>
+is the counter-case, where the ensemble did not help, so do not read the ensemble as coverage.
+
+[#untouched-file]
+=== The blind spot: claims contradicted by a file the diff does not touch
+
+The ceiling above has a specific shape that is worth naming, because it is invisible in exactly
+the way that makes it dangerous — the review comes back clean and the diff reads as coherent.
+
+API-Sheriff#123 is the case. The pull request was titled _"make the k6 suite run to completion"_.
+It documented two benchmark goals as *deliberately skipped*, gave a reason for each, and excluded
+both from the list of goals a new CI step required to produce a result. Read as a document, the
+change is consistent: it says twelve goals are wired, two are skipped, ten are expected.
+
+Nothing in the change actually skipped them. Both goals remained unconditional executions in
+`benchmarks/pom.xml` — a file the pull request did not modify — so the suite still aborted partway
+through, and the CI step added to detect a truncated suite was written so that it could not fire in
+that case. Neither this reviewer nor CodeRabbit reported anything.
+
+The general form:
+
+* The diff asserts a behaviour (_"these are skipped"_, _"this is now validated"_, _"the guard
+covers X"_).
+* The mechanism that would implement the assertion lives in a file the diff does not touch.
+* Every statement inside the diff agrees with every other statement inside the diff.
+
+There is no evidence of the defect anywhere in this reviewer's input, so it is not a recall failure
+and no charter wording addresses it. It is the diff-only ceiling meeting a claim that can only be
+checked outside the diff.
+
+.Why `repo_context_files` is not the fix
+[NOTE]
+====
+The obvious reflex is to add the contradicted file to `repo_context_files`. Resist it.
+
+That key is a fixed list applied to *every* repository this configuration governs, so a build file
+from one project becomes dead weight in all the others. It also shares the
+`repo_context_max_lines` budget, which evicts silently and in order — see
+<<repo-context-budget>> — so paying for a rarely-relevant file makes the genuinely useful
+instruction documents likelier to be dropped. And the channel carries instruction documents rather
+than a code index: the file arrives as context to read, not as something the model can follow a
+reference into.
+
+Reserve the list for documents that describe the rules of the project, which is what it is for.
+====
+
+*The practical rule.* When a change asserts that something is now skipped, guarded, validated or
+enforced, confirm by hand that the mechanism exists — and confirm it in the file that would have
+to implement it, not in the prose of the change. A clean review from either bot is not evidence on
+this class of claim, because neither one looked. That is also the honest limit on the ensemble:
+two independent reviewers sharing the same blind spot agree, and their agreement carries no
+information.
 
 [#recall-over-precision]
 === Recall beats precision for this reviewer, and that is deliberate
