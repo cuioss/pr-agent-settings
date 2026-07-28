@@ -219,10 +219,16 @@ Metadata read-only. No ruleset bypass — the reviewer never pushes.
 
 The upstream `changing_a_model.md` page lists only `gemini/gemini-1.5-flash` for Google AI
 Studio. The authoritative list is the `MAX_TOKENS` registry in `pr_agent/algo/__init__.py`,
-which registers the current line — `gemini/gemini-2.5-flash`, `gemini/gemini-2.5-pro`, the
-`gemini-3-*`, `gemini-3.1-*`, `gemini-3.5-*` and `gemini-3.6-flash` families, plus the
-`vertex_ai/` mirrors — all at 1M context. No `custom_model_max_tokens` override is needed for
-any of them.
+which registers `gemini-2.5-flash`, `gemini-2.5-pro`, and the `gemini-3-*-preview`,
+`gemini-3.1-*` and `gemini-3.5-*` families under both the `gemini/` and `vertex_ai/` prefixes,
+all at 1M context.
+
+The registry **stops at the 3.5 pair**. Anything newer — `gemini-3.6-flash`, for one — is absent,
+and an unregistered model does not degrade gracefully: `get_max_tokens()` in `algo/utils.py`
+raises unless `config.custom_model_max_tokens` is positive. Check the id against that table
+before configuring it, and pair a newer model with `custom_model_max_tokens`. (An earlier
+revision of this document asserted `gemini-3.6-flash` was registered. It is not; the claim was
+never checked against the table.)
 
 Being registered in `MAX_TOKENS` does **not** mean the project can serve it, and this held on
 both backends:
@@ -233,11 +239,35 @@ v1alpha`.
 does not have access to it`, while `gemini-3.5-flash` serves reviews normally.
 
 That `404` is ambiguous by construction — one message covers "not entitled", "not offered in
-this region", and "wrong id". Rather than resolve it by hand, `model` leads with the strongest
-candidate and `fallback_models` descends through the Pro tier to the Flash pair that is known to
-serve. LiteLLM falls through on a `404`, so the configuration selects the best model the project
-can actually serve, and the run log names which rung answered. Pin the winner and drop the dead
-rungs once one run has spoken.
+this region", and "wrong id". Rather than resolve it by hand, a self-selecting ladder was run
+once: lead with the strongest candidate, let LiteLLM fall through, and read which rung answered.
+The result, from `plan-marshall#1031`:
+
+[cols="1,3"]
+|===
+|Model |Outcome
+
+|`gemini-3.5-pro`
+|`404` — not available to this project
+
+|`gemini-3.1-pro`
+|`404` — not available to this project
+
+|`gemini-2.5-pro`
+|`429` throttled, retried, then **served** — `"model": "gemini-2.5-pro"` in the response
+|===
+
+One run settled what three console visits had not. Both `404` rungs were then removed: they cost
+roughly eight wasted calls and a minute per review to re-learn a fixed fact.
+
+The **3.x Pro tier is not available to this project at all**. What the 3 series does offer here is
+`gemini-3.6-flash`, which now leads — newest generation, and it avoids the `429` backoff that
+`gemini-2.5-pro` incurs. `gemini-2.5-pro` sits directly behind it, because a security-weighted
+charter is the workload where pro-tier reasoning depth may still win; if review quality visibly
+drops, swap the first two entries.
+
+Do not reinstate a 3.x *pro* id without first confirming the Model Garden card offers it. The
+`404` is ambiguous enough to read as a transient fault rather than a fixed fact.
 
 The floor of the ladder is what served before it existed, so the worst case is the previous
 behaviour plus a few seconds. Before the gate below existed an unavailable model cost one
