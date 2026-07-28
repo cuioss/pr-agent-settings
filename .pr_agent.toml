@@ -195,6 +195,18 @@ repo_context_from_default_branch = true
 # Do NOT reintroduce withholding language here. Overlap with the other two reviewers costs one
 # duplicate comment; suppression costs the finding. That trade is not close. The charter was
 # written against a failure mode we never had (noise) and produced the opposite one.
+#
+# The closing paragraph — treat stated intent as a claim to check — is deliberately CONDITIONAL
+# ("If the pull request description states..."). The reviewer reads the description from the
+# "--PR Info--" block, and nothing guarantees a description states intent at all. Writing the
+# clause conditionally makes it correct in both worlds: inert when there is no stated intent, and
+# active the moment a generator starts emitting one. That removes a cross-repository sequencing
+# hazard — this file and the tool that writes pull request bodies can land in either order.
+#
+# Its purpose is to pre-empt an anchoring failure rather than a suppression one. Telling a
+# reviewer what a change was meant to do invites it to confirm the account instead of examining
+# the code — the same pressure that produced five empty reviews, arriving as context rather than
+# as instruction. See README.adoc "The PR description is the only route for authored intent".
 require_security_review = true
 require_tests_review = true
 extra_instructions = """
@@ -217,6 +229,10 @@ Report every issue you can substantiate, in these categories:
 For each finding, name the input or state that triggers it and what goes wrong. Overlap with
 other reviewers is acceptable — report the issue regardless of whether another tool might also
 catch it. Do not withhold a substantiated finding because it seems minor or obvious.
+
+If the pull request description states what the change is intended to do, treat that as a claim
+to be checked, not as established fact. Report where the implementation diverges from the stated
+intent, and never treat agreement with it as evidence that the code is correct.
 """
 
 # Suppress the parts of the review that are UI rather than findings.
