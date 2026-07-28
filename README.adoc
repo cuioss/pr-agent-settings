@@ -318,9 +318,46 @@ margin, so a normal security change in this organization fits inside the window.
 quarter of the 1M ceiling, because an unbounded window turns one pathological pull request into a
 pathological bill.
 
-Related: `reasoning_effort` is mapped onto Gemini's thinking budget by LiteLLM, and PR-Agent
-special-cases the 2.5 models because the configured effort would otherwise be dropped
-silently. Relevant if per-pull-request cost ever needs tuning.
+[#gemini3-parameters]
+=== Gemini 3 inverts the temperature advice, and `reasoning_effort` never reaches it
+
+Two model-parameter facts, both of which contradict what a reader would reasonably assume.
+
+*Temperature must be 1.0, not lower.* PR-Agent defaults `config.temperature` to `0.2`, which was
+sound for the 2.5 generation: lower temperature bought determinism, and a reviewer wants
+reproducible output. Google's Gemini 3 guidance reverses it —
+
+[quote]
+____
+For all Gemini 3 models, we strongly recommend keeping the temperature parameter at its default
+value of `1.0`. […] lowering it may lead to unexpected behavior, such as looping or degraded
+performance, particularly in complex mathematical or reasoning tasks.
+____
+
+— and the migration section lists *"remove explicit temperature parameters, especially low
+values"* as an action item when moving off 2.5. Gemini 3's reasoning is tuned for the default.
+
+This was reaching the model, not sitting inert. In the pinned image `pr_reviewer.py:233` passes
+`get_settings().config.temperature` into `chat_completion()`, and `litellm_ai_handler.py` sets
+`kwargs["temperature"]` for every model *not* in `NO_SUPPORT_TEMPERATURE_MODELS` — a list of
+o1/o3/o4, gpt-5-codex and Claude Opus ids with no Gemini entry. Every review this organization
+has run went out at `0.2`.
+
+*`reasoning_effort` is dead config for Gemini.* An earlier revision of this document asserted it
+is mapped onto Gemini's thinking budget by LiteLLM and special-cased for the 2.5 models. That is
+wrong, and it is corrected here rather than quietly deleted, because the setting *appears* in
+every run's resolved-config dump and therefore looks live.
+
+`litellm_ai_handler.py` adds `kwargs["reasoning_effort"]` only when the model is in
+`SUPPORT_REASONING_EFFORT_MODELS`, whose entire contents are `o3-mini`, `o3-mini-2025-01-31`,
+`o3`, `o3-2025-04-16`, `o4-mini` and `o4-mini-2025-04-16`. There is no Gemini-specific thinking
+path anywhere in that handler — the only Gemini references in the file are Vertex project and API
+key wiring. So `reasoning_effort = "medium"` is never transmitted, and Gemini 3's `thinking_level`
+cannot be set through PR-Agent at all in this version.
+
+The practical consequence: thinking depth is not a lever we currently have. If per-review cost or
+depth ever needs tuning, it takes an upstream change, not a configuration one — and a value
+showing up in the resolved-config log is not evidence that it was sent.
 
 [#clipped-diff]
 === A clipped diff produces confident wrong findings, not fewer findings
