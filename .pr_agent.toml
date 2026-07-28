@@ -64,6 +64,24 @@ fallback_models = [
 # Delete this line the day the pinned image registers the model, and not before.
 custom_model_max_tokens = 1048576
 
+# REQUIRED by the Gemini 3 generation. PR-Agent defaults to 0.2 — a Gemini-2.5-era setting — and
+# Google's Gemini 3 guidance is explicit and unusually strong:
+#
+#   "For all Gemini 3 models, we strongly recommend keeping the temperature parameter at its
+#    default value of 1.0. [...] lowering it may lead to unexpected behavior, such as looping or
+#    degraded performance, particularly in complex mathematical or reasoning tasks."
+#
+# The migration section repeats it as an action item: remove explicit temperature parameters,
+# especially low ones. Earlier models rewarded lowering temperature for determinism; on Gemini 3
+# that intuition is actively harmful, because its reasoning is tuned for the default.
+#
+# This was NOT dead config — 0.2 reached the model on every review this org has ever run.
+# Verified end to end in the pinned image: pr_reviewer.py:233 passes
+# get_settings().config.temperature into chat_completion(), and litellm_ai_handler.py sets
+# kwargs["temperature"] for every model NOT in NO_SUPPORT_TEMPERATURE_MODELS — a list of
+# o1/o3/o4/gpt-5-codex and Claude Opus ids containing no Gemini entry.
+temperature = 1.0
+
 # Upstream defaults this to 32000, which silently caps what the reviewer ever SEES: with
 # large_patch_policy = "clip", any diff above the limit is truncated before the model reads it.
 # Promoting to a larger-context model without raising this would buy the stronger model and
