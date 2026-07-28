@@ -261,10 +261,33 @@ One run settled what three console visits had not. Both `404` rungs were then re
 roughly eight wasted calls and a minute per review to re-learn a fixed fact.
 
 The **3.x Pro tier is not available to this project at all**. What the 3 series does offer here is
-`gemini-3.6-flash`, which now leads — newest generation, and it avoids the `429` backoff that
-`gemini-2.5-pro` incurs. `gemini-2.5-pro` sits directly behind it, because a security-weighted
-charter is the workload where pro-tier reasoning depth may still win; if review quality visibly
-drops, swap the first two entries.
+`gemini-3.6-flash`, which leads — newest generation, and it avoids the `429` backoff that
+`gemini-2.5-pro` incurs.
+
+The rest of the ladder is ordered *newest generation first*, which is not the intuitive
+"pro outranks flash" ordering. Google's published head-to-head has `3.6-flash` beating
+**3.1 Pro** on every coding and agentic benchmark:
+
+[cols="2,1,1"]
+|===
+|Benchmark |3.6 Flash |3.1 Pro
+
+|SWE-Bench Pro |58.7% |54.2%
+|DeepSWE v1.1 |49% |12%
+|Terminal-Bench 2.1 |78.0% |73.8%
+|MLE-Bench |63.9% |42.6%
+|===
+
+Pro retains narrow leads only on pure reasoning (GPQA Diamond 94.3 vs 92.8, Humanity's Last Exam
+44.4 vs 38.3) — not this workload. `gemini-2.5-pro` is a generation older still, so placing it
+ahead of a 3-series flash would have made a fallback a *downgrade*. It now sits at the back.
+
+[NOTE]
+====
+*Do not "promote to pro" to fix thin reviews.* It was proposed here once and was wrong twice
+over: it contradicts the benchmarks above, and review depth turned out to be governed by the
+charter, not the model — see <<charter-suppression>>.
+====
 
 Do not reinstate a 3.x *pro* id without first confirming the Model Garden card offers it. The
 `404` is ambiguous enough to read as a transient fault rather than a fixed fact.
@@ -428,12 +451,60 @@ The organization's review docs record that the retired consumer tier of Gemini C
 in practice the sharpest *security* reviewer of the three bots, and that its sunset left that
 gap to be covered by reading CodeRabbit's security findings more carefully.
 
-A third general-purpose reviewer would mostly restate what CodeRabbit and Sourcery already
-say. So this one is pointed at the gap: `require_security_review = true` plus a
-security-weighted `extra_instructions` block, and the low-value output (effort estimates,
-review labels, ticket analysis, help text) switched off. `repo_context_files` additionally
-feeds it this org's `CLAUDE.md` / `AGENTS.md`, so it reviews against documented project rules
-rather than generic expectations — something neither other reviewer can do.
+So this one is pointed at the gap: `require_security_review = true` plus a security-weighted
+`extra_instructions` block, and the low-value output (effort estimates, review labels, ticket
+analysis, help text) switched off. `repo_context_files` additionally feeds it this org's
+`CLAUDE.md` / `AGENTS.md`, so it reviews against documented project rules rather than generic
+expectations — something neither other reviewer can do.
+
+[WARNING]
+====
+*"Avoid duplicating the other reviewers" is not a charter — it is an off switch.* The first
+version of this charter said so explicitly and produced a reviewer that never reported anything.
+See <<charter-suppression>>. Overlap costs one duplicate comment; suppression costs the finding.
+====
+
+[#charter-suppression]
+=== A charter written against noise produces silence
+
+The first charter was tuned against a failure mode this reviewer never had. The result is the
+most expensive kind of bug in a review pipeline: a bot that looks healthy, runs green, publishes
+on schedule, and is worth nothing.
+
+*The measurement.* Across five pull requests, four models (`3.5-flash`, `2.5-pro`, `3.6-flash`)
+and diffs from 5k to 57k tokens, every published review was *byte-identical at 242 bytes* — the
+bare table, zero findings. A result that does not move when the model changes is not a model
+result, and the instinct to fix it by promoting to a stronger model is a category error.
+
+*The controlled run.* `/review` on plan-marshall#1027: `gemini-3.6-flash`, full 40748-token diff
+with no pruning, against the final commit. In that same diff CodeRabbit had already reported a
+TOCTOU race around `shutil.move` and an empty-string filename resolving to a directory — both
+squarely inside the charter. This reviewer reported neither. That single run eliminated model
+choice, diff pruning and the stale-commit trigger in one shot, leaving only the prompt.
+
+*The cause.* Upstream's field description for `key_issues_to_review` is already conservative
+("Only include issues you are confident about… An empty list is acceptable if no clear issues
+are found"). The charter stacked three further suppressors on top, with nothing pushing back:
+
+* `do not duplicate [the other reviewers]` — an instruction to withhold, and the model has no
+way to know what the other two actually reported.
+* `only when you can name the concrete input` — redundant with the base confidence gate.
+* `prefer one well-evidenced finding` — resolves to zero when nothing reaches certainty.
+
+The scope was also wrong for the codebase. Six classical AppSec bullets — injection, SSRF,
+authentication — that Python tooling repositories almost never contain, so the model correctly
+concluded its assignment was empty. The defect classes this organization actually ships
+(concurrency, resource lifecycle, fail-open error handling, state corruption) appeared only as a
+sub-clause of one bullet.
+
+*The rule that follows.* Every clause in `extra_instructions` that narrows scope or raises a
+confidence bar is a suppressor, and they compose multiplicatively with a base prompt that is
+already conservative. Write the charter to say what to look *for*, never what to stay quiet
+about.
+
+*How to verify a charter change.* plan-marshall#1027 is a known-answer regression case: comment
+`/review` and the two findings above must appear. A green run proves nothing — an empty review
+is exactly what the broken configuration produced.
 
 == Skip rules
 

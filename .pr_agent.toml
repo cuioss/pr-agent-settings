@@ -36,14 +36,23 @@
 # What the project DOES offer from the 3 series is `gemini-3.6-flash` (Model Garden reports
 # `publishers/google/models/gemini-3.6-flash`; the LiteLLM form prepends the provider). It leads
 # here: newest generation, and it sidesteps the 429 backoff that 2.5-pro incurs. `gemini-2.5-pro`
-# sits directly behind it as the reasoning-tier fallback, since a security-weighted charter is
-# exactly the workload where pro-tier depth may still win — if review quality visibly drops,
-# swap the first two entries and the comparison is available immediately.
+# sits at the BACK of the ladder, not behind the leader.
+#
+# The ladder is ordered newest-generation-first, on Google's published head-to-head: 3.6-flash
+# beats 3.1 PRO on all four coding and agentic benchmarks — SWE-Bench Pro 58.7 vs 54.2,
+# Terminal-Bench 2.1 78.0 vs 73.8, MLE-Bench 63.9 vs 42.6, DeepSWE v1.1 49 vs 12. Pro keeps only
+# narrow leads on pure reasoning (GPQA 94.3 vs 92.8, HLE 44.4 vs 38.3), which is not this
+# workload. 2.5-pro is a generation older still, so ranking it ahead of a 3-series flash would
+# have made a fallback a downgrade.
+#
+# Do not "promote to pro" as a remedy for thin reviews. That was proposed here once and was
+# wrong twice over: it contradicts the benchmarks above, and review depth turned out to be
+# governed by the charter in [pr_reviewer], not by the model — see the note there.
 model = "vertex_ai/gemini-3.6-flash"
 fallback_models = [
-    "vertex_ai/gemini-2.5-pro",
     "vertex_ai/gemini-3.5-flash",
     "vertex_ai/gemini-2.5-flash",
+    "vertex_ai/gemini-2.5-pro",
 ]
 
 # REQUIRED by the model above, not optional tuning. `gemini-3.6-flash` is absent from
@@ -110,22 +119,58 @@ repo_context_from_default_branch = true
 
 [pr_reviewer]
 # Charter: this is the THIRD reviewer, beside CodeRabbit and Sourcery. It is pointed at the
-# security depth lost when the consumer tier of Gemini Code Assist was retired, so that its
-# findings complement rather than restate the other two.
+# security depth lost when the consumer tier of Gemini Code Assist was retired.
+#
+# This text was rewritten after being measured, and the measurement was unambiguous: across five
+# pull requests, four models (3.5-flash, 2.5-pro, 3.6-flash) and diffs from 5k to 57k tokens,
+# EVERY published review was byte-identical at 242 bytes — the bare table, zero findings. A
+# result invariant under model swap is not a model result.
+#
+# The controlled run that settled it: `/review` on plan-marshall#1027 — gemini-3.6-flash, full
+# 40748-token diff with no pruning, against the final commit. In that same diff CodeRabbit had
+# already reported a TOCTOU race around `shutil.move` and an empty-string filename resolving to
+# a directory. Both sit inside the charter below. This reviewer reported neither.
+#
+# The cause was this text. Upstream's own field description for key_issues_to_review is ALREADY
+# conservative ("Only include issues you are confident about... An empty list is acceptable"),
+# and the previous charter stacked three further suppressors on top of it, with nothing pushing
+# the other way:
+#
+#   "do not duplicate [the other reviewers]"   — an instruction to withhold, and the model cannot
+#                                                know what the other two actually reported
+#   "only when you can name the concrete input" — redundant with the base confidence gate
+#   "prefer one well-evidenced finding"         — resolves to zero when nothing reaches certainty
+#
+# The scope was wrong for this codebase too: six classical AppSec bullets (injection, SSRF,
+# authn) that Python tooling repositories almost never contain, so the model correctly concluded
+# its assignment was empty. The defect classes we actually ship — concurrency, resource
+# lifecycle, fail-open error handling, state corruption — were a sub-clause of one bullet.
+#
+# Do NOT reintroduce withholding language here. Overlap with the other two reviewers costs one
+# duplicate comment; suppression costs the finding. That trade is not close. The charter was
+# written against a failure mode we never had (noise) and produced the opposite one.
 require_security_review = true
 require_tests_review = true
 extra_instructions = """
-Prioritise security and correctness over style. This repository is already reviewed by two
-other automated reviewers for general code quality and refactoring opportunities — do not
-duplicate that. Concentrate on:
-- Injection, deserialization, path-traversal, SSRF and unsafe-reflection paths.
+Prioritise security and correctness over style.
+
+Report every issue you can substantiate, in these categories:
+- Concurrency and time-of-check/time-of-use races; non-atomic file or state mutation;
+  operations that are unsafe to retry or to run twice.
+- Resource lifecycle: handles, locks, temporary files and subprocesses that leak or are not
+  released on the error path.
+- Fail-open error handling where fail-closed is required; swallowed exceptions; a guard whose
+  predicate cannot fire; validation that admits the empty or degenerate input.
+- Correctness bugs whose impact is data loss, state corruption, or a silently wrong result.
+- Injection, deserialization, path traversal, SSRF and unsafe reflection.
 - Authentication, authorization and trust-boundary errors; privilege escalation.
 - Secret and credential handling, including values reaching logs or error messages.
-- Unsafe defaults, fail-open error handling where fail-closed is required, and TOCTOU races.
 - Dependency and supply-chain risk introduced by the change.
-- Missing negative/adversarial test coverage for the paths above.
-Report a finding only when you can name the concrete input or state that triggers it. Prefer
-one well-evidenced finding over several speculative ones.
+- Missing negative or adversarial test coverage for any of the above.
+
+For each finding, name the input or state that triggers it and what goes wrong. Overlap with
+other reviewers is acceptable — report the issue regardless of whether another tool might also
+catch it. Do not withhold a substantiated finding because it seems minor or obvious.
 """
 
 # Suppress the parts of the review that are UI rather than findings.
