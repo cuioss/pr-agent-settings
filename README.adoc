@@ -436,10 +436,19 @@ intent. Now `2000`.
 [NOTE]
 ====
 *Feeding intent to a reviewer is not free.* Stating what a change was meant to do invites the
-model to confirm the account rather than examine the code — the same suppression pressure, arriving
-as context instead of as instruction. If authored intent is ever routed here deliberately, it
-belongs in the prompt as a *claim to be verified*: report where the implementation diverges from
-it, and never treat conformance with it as evidence of correctness.
+model to confirm the account rather than examine the code — the same pressure that produced five
+empty reviews, arriving as context instead of as instruction.
+
+The charter therefore closes with a clause admitting stated intent only as a *claim to be
+checked*: report where the implementation diverges from it, and never treat agreement with it as
+evidence of correctness.
+
+That clause is *conditional* by design — `If the pull request description states what the change
+is intended to do…`. Nothing guarantees a description states intent at all, so the conditional
+form is correct in both worlds: inert while none does, active the moment a generator starts
+emitting one. The guard is therefore in place before the thing it guards, and a tool that begins
+writing intent into pull request bodies cannot land ahead of its own safeguard — in either
+repository, in either order.
 ====
 
 [#patch-extension]
