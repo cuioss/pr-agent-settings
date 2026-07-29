@@ -513,10 +513,12 @@ it would take a different tool.
 
 Two consequences that shape how this reviewer should be used:
 
-* *Its findings are strongest where the defect is local to the diff.* Both defects it has
-recovered here — a session-identity collision and a sequence-number reuse — were visible within
-the changed code once the model could see all of it. Do not expect it to reason about a caller
-three files away that the pull request did not touch.
+* *Its findings are strongest where the defect is local to the diff.* Every defect it has
+recovered here — a session-identity collision, a sequence-number reuse, a path predicate matched
+against the absolute rather than the repository-relative path, and a function returning a
+different key set on one branch than on the other — was visible within the changed code once the
+model could see all of it. Do not expect it to reason about a caller three files away that the
+pull request did not touch.
 * *Diff completeness matters more for this tool than for an indexing one.* A clipped diff removes
 the only context it has, which is why <<clipped-diff>> is a correctness issue here and not merely
 a coverage one.
@@ -527,6 +529,9 @@ The mitigation we have is the ensemble: three reviewers with different mandates,
 published benchmarks agree the tools disagree. API-Sheriff#118 is the concrete case — this
 reviewer found a session-collision defect that both of the other two missed. <<untouched-file>>
 is the counter-case, where the ensemble did not help, so do not read the ensemble as coverage.
+
+And <<ensemble-availability>> is the harder counter-case: an ensemble is only as wide as the
+number of its members that actually ran.
 
 [#untouched-file]
 === The blind spot: claims contradicted by a file the diff does not touch
@@ -599,6 +604,55 @@ rewards direct, simplified instructions.
 *The practical rule.* Treat charter growth as the warning sign, not finding volume. If the
 category list keeps expanding past roughly ten entries, the answer is a second focused pass — not
 an eleventh bullet.
+
+*A quieter review is not a worse one, and volume is not coverage.* Two cases make the point from
+opposite directions, and both should be read before anyone concludes this reviewer under-reports.
+
+On plan-marshall#1038 another reviewer posted three findings where this one posted none. That
+looked like a recall gap until the three were examined: all three were declined on their merits,
+and the reviewer that raised them then withdrew all three itself. The silence was the correct
+answer, and counting comments would have scored it as a miss.
+
+On plan-marshall#1040 the direction reverses. Both reviewers examined the same predicate. This one
+posted first, on the opening commit, and its finding was the live defect — a path check matched
+against the absolute path, so any ancestor directory carrying the matched word made the predicate
+true for every document. The other reviewer arrived forty minutes later, after that defect had
+already been fixed, and raised a finding against the corrected code that was refuted and withdrawn.
+One finding each; one of them real.
+
+The rule that survives both: *a reviewer's finding count carries no information about its recall.*
+Compare what was substantiated, never how much was said.
+
+[#ensemble-availability]
+=== The binding constraint is availability, not depth
+
+The ensemble argument in <<diff-only-ceiling>> assumes the members run. That assumption is the
+weakest part of this setup, and it fails often enough to be the first thing to check.
+
+On plan-marshall#1041 all three reviewers posted a comment on a 48-file pull request. Two of those
+comments were refusals — one declined on diff size, one on an exhausted review quota — so the
+number of reviewers that read the diff was one, and it was this one. A count of participating bots
+reads three. Coverage was a third of that.
+
+Two properties make this worse than it first looks.
+
+* *A refusal is shaped like a review.* It is posted by the reviewer identity, in the same place, at
+the same point in the flow. Presence of a comment is therefore not evidence of a review; only its
+content is. Any consumer that counts comments — or check states, which are unreliable in both
+directions — will overstate coverage.
+* *Quotas are account-wide, so the cost is paid by a different pull request than the one that
+incurred it.* A quota consumed by re-reviews of intermediate commits on one repository's pull
+request is unavailable to the next repository's. The pull request that goes unreviewed is rarely
+the one that caused the exhaustion, which is what makes this hard to notice from any single pull
+request.
+
+*The practical rule.* Before treating a clean pull request as reviewed, read each bot's comment
+body and confirm it contains a review rather than a refusal. Do not infer coverage from the number
+of configured reviewers, the number of comments, or a green check.
+
+This reviewer's standing value in the ensemble is therefore not only that it reads the diff
+differently. It is that it has no per-account review quota and no diff-size ceiling, so it is
+frequently the member that is still available.
 
 [#no-self-report]
 === PR-Agent cannot report its own failure
