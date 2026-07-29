@@ -827,6 +827,94 @@ about.
 `/review` and the two findings above must appear. A green run proves nothing — an empty review
 is exactly what the broken configuration produced.
 
+*A second known-answer case, for the severity clause specifically.* #1027 only proves the reviewer
+reports a Major defect; it cannot distinguish a charter that reports everything substantiated from
+one that still applies a severity floor, because both report a TOCTOU race. The oracle for that is
+plan-marshall#1042, where another reviewer substantiated four findings on the same diff of which
+**two were accepted as valid and then declined as minor** — a test-fixture duplication and a
+narrow same-file scoping refinement. Those two are precisely what a severity floor suppresses and a
+floorless charter must surface.
+
+The pass condition is therefore *shaped*, not counted: comment `/review` on #1042 and check whether
+anything narrow, cheap-to-fix, or confined to test code appears at all. A review returning only the
+two Major defects has NOT discharged the severity clause — it has reproduced the exact behaviour the
+clause was written against, while looking like a success.
+
+This matters because <<empty-list-permission>> makes the clause an argument against the pinned field
+description rather than a replacement of it, and the two can compose into competing instructions.
+Nothing in the configuration proves which one won. Only a known-answer run does, and this is that
+run.
+
+[#empty-list-permission]
+=== "No major issues detected" is not a filter, and the real suppressor is not configurable
+
+The natural reading of a review that says *"No major issues detected"* is that a severity threshold
+discarded the minor findings, and that some setting controls it. Both halves are wrong, and the
+mistake sends the next reader looking for a knob that does not exist.
+
+There is no severity filter. That sentence is the text rendered when `key_issues_to_review` comes
+back as an empty list. Nothing was found and nothing was dropped.
+
+The suppression lives in that field's own description, inside the pinned image at
+`pr_reviewer_prompts.toml:150`:
+
+[quote]
+____
+A concise list (0-`{num_max_findings}` issues) of bugs, security vulnerabilities, or significant
+performance concerns introduced in this PR. Only include issues you are confident about. [...] An
+empty list is acceptable if no clear issues are found.
+____
+
+Four suppressors in one sentence:
+
+* a ceiling that reads as a target, reinforced by the word *concise*
+* a scope — bugs, security, significant performance — narrower than the categories the charter adds
+* a confidence gate
+* explicit permission to return nothing
+
+*The structural part.* `extra_instructions` cannot reach this text. It is appended as its own block
+earlier in the system prompt, so the charter argues *alongside* the field description rather than
+replacing it. Every charter revision is therefore a rhetorical contest with a schema the model is
+also obeying, and the schema is closer to the answer it must produce.
+
+That is why the charter now addresses the empty-list permission head-on rather than adding more
+categories. Adding categories was already tried, and <<recall-over-precision>> caps it at roughly
+ten. What had never been contested was the licence to report nothing.
+
+`num_max_findings` matters more than a cap normally would for the same reason: it is interpolated
+into that sentence, so a low value is read as the expected shape of an answer. It was raised from
+five when plan-marshall#1042 produced six substantiated findings from another reviewer on the same
+diff — five was capable of binding.
+
+WARNING: Loosen the severity bar, never the substantiation bar. Pressure to report more is exactly
+what produces invented mechanisms, and this reviewer has done it once already — API-Sheriff#103, a
+confident finding about a branch that cannot be reached. The charter's anti-fabrication clause is
+load-bearing and must survive any future tuning of this section.
+
+[#skills-injection]
+=== `[skills]` would be a strong lever and cannot be enabled as things stand
+
+Version 0.39.0 adds a `[skills]` section that discovers `*/SKILL.md` files from configured
+filesystem paths and inlines them into the review prompt. For an organization whose standards are
+literally written as `SKILL.md` files this looks like the highest-value setting in the file.
+
+It is unusable here, for a reason worth recording so the idea is not rediscovered and quietly
+switched on.
+
+`skills.paths` is a *filesystem* scan, not a repository reference. The reviewer workflow performs no
+checkout at all — deliberately, and the workflow says so at the step that fetches credentials — so
+there is nothing on disk to scan. Making the setting work means adding a checkout, and a checkout in
+this job is a checkout of the *pull request head*.
+
+That is the one thing this configuration is built to prevent. `repo_context_from_default_branch` is
+`true` precisely so that pull request content cannot rewrite the reviewer's own instructions;
+enabling skills against a head checkout would reintroduce that hole in a wider form, because a
+`SKILL.md` added by a pull request is read as organizational standards rather than as reviewed
+content.
+
+Revisit only if the loader gains a default-branch reference, or if a checkout can be pinned to the
+base branch and proven not to follow the head.
+
 == Skip rules
 
 Three rules, matching `cuioss/coderabbit` exactly in effect, but *not* in mechanism:
