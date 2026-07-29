@@ -207,6 +207,29 @@ repo_context_from_default_branch = true
 # reviewer what a change was meant to do invites it to confirm the account instead of examining
 # the code — the same pressure that produced five empty reviews, arriving as context rather than
 # as instruction. See README.adoc "The PR description is the only route for authored intent".
+# The last two paragraphs answer a DIFFERENT suppressor from the one above, and it is the harder
+# one because it does not live in this file. "No major issues detected" is not a setting and there
+# is no severity filter to turn off — it is simply the text rendered when key_issues_to_review comes
+# back empty. The suppression is in that field's own description, in the pinned image at
+# pr_reviewer_prompts.toml:150:
+#
+#   "A concise list (0-{{ num_max_findings }} issues) of bugs, security vulnerabilities, or
+#    significant performance concerns introduced in this PR. Only include issues you are confident
+#    about. ... An empty list is acceptable if no clear issues are found."
+#
+# Four suppressors in one sentence — a low ceiling framed as "concise", a scope narrower than the
+# categories above, a confidence gate, and explicit permission to say nothing. This text is not
+# reachable from configuration: extra_instructions is appended as a separate block earlier in the
+# system prompt, so it argues alongside the field description rather than replacing it.
+#
+# That is why the closing paragraphs address the empty-list permission directly instead of adding
+# more categories. Category growth was already tried and is capped — see README.adoc
+# "Recall beats precision". What was never addressed is the model's licence to report nothing.
+#
+# The anti-fabrication clause is load-bearing and must not be dropped when this is next tuned.
+# Pressure to report more is exactly the pressure that produces invented mechanisms; this reviewer
+# has done that once already (API-Sheriff#103, a confident finding about a branch that cannot be
+# reached). Loosening the severity bar while HOLDING the substantiation bar is the whole design.
 require_security_review = true
 require_tests_review = true
 extra_instructions = """
@@ -233,6 +256,16 @@ catch it. Do not withhold a substantiated finding because it seems minor or obvi
 If the pull request description states what the change is intended to do, treat that as a claim
 to be checked, not as established fact. Report where the implementation diverges from the stated
 intent, and never treat agreement with it as evidence that the code is correct.
+
+Severity is not a reporting threshold. Report a finding you can substantiate even when it is
+narrow, cheap to fix, or confined to test code — the reader decides what to act on, and a finding
+declined as minor costs one line of triage. Do not weigh whether an issue is important enough to
+mention.
+
+An empty list remains the correct answer when the diff genuinely carries nothing substantiable, and
+you must never invent a finding, pad the list, or report an issue whose mechanism you have not
+traced in the code shown. But do not return an empty list because nothing reached a bar of severity
+or importance. There is no such bar.
 """
 
 # Suppress the parts of the review that are UI rather than findings.
@@ -279,4 +312,14 @@ persistent_inline_comments = true
 # so there is something to "update" on every subsequent review.
 final_update_message = false
 
-num_max_findings = 5
+# Upstream defaults this to 3. It is not merely a cap — it is interpolated directly into the
+# `key_issues_to_review` field description as "A concise list (0-{{ num_max_findings }} issues)",
+# so the model reads it as the shape of an expected answer, not as a ceiling it is unlikely to
+# reach. A low number and the word "concise" in the same sentence are a suppressor.
+#
+# Raised from 5 on the plan-marshall#1042 evidence, where CodeRabbit reported six substantiated
+# findings across the same diff. Five was capable of binding.
+#
+# This does NOT license padding — the charter above forbids reporting an untraced mechanism, and
+# that constraint is the one that must hold if this number is raised again.
+num_max_findings = 12
