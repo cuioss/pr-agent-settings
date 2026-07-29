@@ -651,8 +651,17 @@ body and confirm it contains a review rather than a refusal. Do not infer covera
 of configured reviewers, the number of comments, or a green check.
 
 This reviewer's standing value in the ensemble is therefore not only that it reads the diff
-differently. It is that it has no per-account review quota and no diff-size ceiling, so it is
-frequently the member that is still available.
+differently. It is that it has no per-account review quota and does not decline a pull request for
+being large, so it is frequently the member that is still available.
+
+That availability has a sharp edge, and it is the reason this section does not simply recommend
+relying on it. This reviewer has a size limit too — `max_model_tokens`, see <<context-window>> —
+but it does not refuse when a diff exceeds it. It clips the diff and reviews the remainder, and
+<<clipped-diff>> is the case where that produced a confident finding refuted by the very lines the
+clip removed. So the two failure modes are not equivalent: a refusal is a truthful report of
+non-coverage, while a clipped review is indistinguishable from a complete one at the pull request.
+Read an oversized diff reviewed here as inconclusive, and prefer a bot that declines loudly over
+one that silently reviews part of the change.
 
 [#no-self-report]
 === PR-Agent cannot report its own failure
